@@ -1,0 +1,47 @@
+services:
+  mongo-store:
+    image: mongo:7
+    container_name: mongo-store
+    ports:
+      - "27017:27017"
+
+  mongo-order:
+    image: mongo:7
+    container_name: mongo-order
+    ports:
+      - "27018:27017"
+
+  pet-store-1:
+    build: ./pet-store
+    image: pet-store:assn4
+    container_name: pet-store-1
+    environment:
+      - MONGO_URL=mongodb://mongo-store:27017
+      - DB_NAME=pet_store
+    ports:
+      - "5001:5000"
+    depends_on:
+      - mongo-store
+
+  pet-store-2:
+    image: pet-store:assn4
+    container_name: pet-store-2
+    environment:
+      - MONGO_URL=mongodb://mongo-store:27017
+      - DB_NAME=pet_store
+    ports:
+      - "5002:5000"
+    depends_on:
+      - mongo-store
+
+  pet-order:
+    build: ./pet-order
+    image: pet-order:assn4
+    container_name: pet-order
+    environment:
+      - MONGO_URL=mongodb://mongo-order:27017
+      - DB_NAME=pet_order
+    ports:
+      - "5003:5000"
+    depends_on:
+      - mongo-order

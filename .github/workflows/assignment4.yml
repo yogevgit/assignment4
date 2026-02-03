@@ -1,0 +1,177 @@
+name: assignment4
+
+on:
+  push:
+
+env:
+  SUBMITTERS: "YOUR_NAME"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize log
+        run: |
+          date -Iminutes > log.txt
+          echo "${SUBMITTERS}" >> log.txt
+
+      - name: Build service images
+        run: |
+          set +e
+          build_store=success
+          docker build -t pet-store:assn4 ./pet-store
+          if [ $? -ne 0 ]; then build_store=fail; fi
+
+          build_order=success
+          docker build -t pet-order:assn4 ./pet-order
+          if [ $? -ne 0 ]; then build_order=fail; fi
+
+          if [ "$build_store" = "success" ]; then
+            store_msg="image pet-store successfully built;"
+          else
+            store_msg="image pet-store not able to be built;"
+          fi
+          if [ "$build_order" = "success" ]; then
+            order_msg="image pet-order successfully built;"
+          else
+            order_msg="image pet-order not able to be built;"
+          fi
+          echo "$store_msg $order_msg" >> log.txt
+
+          if [ "$build_store" = "fail" ] || [ "$build_order" = "fail" ]; then
+            exit 1
+          fi
+
+      - name: Save images
+        run: docker save pet-store:assn4 pet-order:assn4 -o images.tar
+
+      - name: Upload images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images
+          path: images.tar
+          overwrite: true
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log
+          path: log.txt
+          overwrite: true
+
+  test:
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: docker load -i images.tar
+
+      - name: Download log
+        uses: actions/download-artifact@v4
+        with:
+          name: log
+
+      - name: Start containers
+        run: docker compose up -d
+
+      - name: Record container status
+        run: |
+          status_line=""
+          for name in pet-store-1 pet-store-2 pet-order; do
+            if docker ps --format '{{.Names}}' | grep -q "^${name}$"; then
+              case "${name}" in
+                pet-store-1) label="pet-store #1";;
+                pet-store-2) label="pet-store #2";;
+                pet-order) label="pet-order";;
+              esac
+              status_line+="Container ${label} up and running; "
+            else
+              case "${name}" in
+                pet-store-1) label="pet-store #1";;
+                pet-store-2) label="pet-store #2";;
+                pet-order) label="pet-order";;
+              esac
+              status_line+="Container ${label} failed to run; "
+            fi
+          done
+          echo "${status_line}" >> log.txt
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: pip install pytest requests
+
+      - name: Run tests
+        run: |
+          set +e
+          pytest -v tests/assn4_tests.py 2>&1 | tee assn4_test_results.txt
+          status=${PIPESTATUS[0]}
+          if [ $status -eq 0 ]; then
+            echo "All pytests succeeded" >> log.txt
+          else
+            echo "pytests failed" >> log.txt
+          fi
+          exit $status
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: assn4_test_results.txt
+          overwrite: true
+
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: log
+          path: log.txt
+          overwrite: true
+
+  query:
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download images
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-images
+
+      - name: Load images
+        run: docker load -i images.tar
+
+      - name: Start containers
+        run: docker compose up -d
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install query dependencies
+        run: pip install requests
+
+      - name: Run query job
+        run: python scripts/query_job.py
+
+      - name: Upload response
+        uses: actions/upload-artifact@v4
+        with:
+          name: response
+          path: response.txt
+          overwrite: true
